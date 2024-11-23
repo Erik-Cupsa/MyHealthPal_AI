@@ -51,7 +51,7 @@ def preprocess_text(text):
     print("Preprocessing text...")
     # Remove URLs, mentions, hashtags, punctuation, and digits
     text = re.sub(r'http\S+|www\S+|https\S+', '', text, flags=re.MULTILINE)
-    text = re.sub(r'\@\w+|\#','', text)
+    text = re.sub(r'\@\w+|\#', '', text)
     text = text.translate(str.maketrans('', '', string.punctuation))
     text = re.sub(r'\d+', '', text)
     # Lowercase the text
@@ -96,11 +96,21 @@ def predict():
         print("Making prediction...")
         prediction = model.predict(padded_sequences)
         print(f"Raw prediction: {prediction}")
+
+        # Determine confidence and sentiment
         predicted_class = prediction.argmax(axis=1)[0]
-        print(f"Predicted class: {predicted_class}")
-        sentiment = label_encoder.inverse_transform([predicted_class])[0]
-        app.logger.info(f"Predicted sentiment: {sentiment}")
-        print(f"Predicted sentiment: {sentiment}")
+        confidence = float(prediction[0][predicted_class])  # Convert to Python float
+        print(f"Predicted class: {predicted_class}, Confidence: {confidence}")
+
+        # Confidence threshold for neutrality
+        confidence_threshold = 0.65  # Adjust based on testing
+        if confidence < confidence_threshold:
+            sentiment = "neutral"
+        else:
+            sentiment = label_encoder.inverse_transform([predicted_class])[0]
+
+        app.logger.info(f"Predicted sentiment: {sentiment}, Confidence: {confidence}")
+        print(f"Predicted sentiment: {sentiment}, Confidence: {confidence}")
     except Exception as e:
         app.logger.error(f"Error during prediction: {e}")
         print(f"Error during prediction: {e}")
@@ -108,7 +118,7 @@ def predict():
 
     # Return the result
     print(f"Returning sentiment: {sentiment}")
-    return jsonify({'sentiment': sentiment}), 200
+    return jsonify({'sentiment': sentiment, 'confidence': confidence}), 200
 
 if __name__ == '__main__':
     print("Starting Flask app...")

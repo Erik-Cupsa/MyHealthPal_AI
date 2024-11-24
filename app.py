@@ -7,6 +7,8 @@ import logging
 import tensorflow as tf
 from tensorflow.keras.models import load_model
 from tensorflow.keras.preprocessing.sequence import pad_sequences
+import speech_recognition as sr
+import os
 
 app = Flask(__name__)
 
@@ -120,6 +122,93 @@ def predict():
     print(f"Returning sentiment: {sentiment}")
     return jsonify({'sentiment': sentiment, 'confidence': confidence}), 200
 
+@app.route('/speech-to-text', methods=['POST'])
+def speech_to_text():
+    print("Received /speech-to-text request.")
+    
+    # Check if the post request has the file part
+    if 'audio_file' not in request.files:
+        print("No audio file provided.")
+        return jsonify({'error': 'No audio file provided.'}), 400
+
+    audio_file = request.files['audio_file']
+    filename = audio_file.filename
+    print(f"Received audio file: {filename}")
+
+    if filename == '':
+        print("Empty filename received.")
+        return jsonify({'error': 'No selected file.'}), 400
+
+    # Validate MIME type
+    allowed_mime_types = ['audio/wav', 'audio/webm', 'audio/ogg', 'audio/mpeg', 'audio/mp3']
+    if audio_file.mimetype not in allowed_mime_types:
+        print(f"Unsupported MIME type: {audio_file.mimetype}")
+        return jsonify({'error': 'Unsupported audio format.'}), 400
+
+    # Extract file extension
+    if '.' in filename:
+        ext = filename.rsplit('.', 1)[-1].lower()
+    else:
+        # Attempt to derive extension from MIME type
+        mime_to_ext = {
+            'audio/wav': 'wav',
+            'audio/webm': 'webm',
+            'audio/ogg': 'ogg',
+            'audio/mpeg': 'mp3',
+            'audio/mp3': 'mp3'
+        }
+        ext = mime_to_ext.get(audio_file.mimetype, 'wav')  # Default to 'wav' if unknown
+
+    try:
+        with tempfile.NamedTemporaryFile(suffix=f".{ext}", delete=False) as temp_uploaded:
+            temp_uploaded_path = temp_uploaded.name
+            audio_file.save(temp_uploaded_path)
+            print(f"Uploaded file saved as {temp_uploaded_path}")
+
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_wav:
+            temp_wav_path = temp_wav.name
+
+        # Convert the uploaded audio file to WAV format using pydub
+        print("Converting audio file to WAV format...")
+        try:
+            audio = AudioSegment.from_file(temp_uploaded_path, format=ext)
+            audio.export(temp_wav_path, format="wav")
+            print(f"Audio file converted and saved as {temp_wav_path}")
+        except Exception as conversion_error:
+            print(f"Error converting audio file: {conversion_error}")
+            return jsonify({'error': 'Failed to convert audio file to WAV format.'}), 400
+
+        # Perform speech recognition
+        recognizer = sr.Recognizer()
+        print("Starting speech recognition...")
+        try:
+            with sr.AudioFile(temp_wav_path) as source:
+                audio_data = recognizer.record(source)
+                text = recognizer.recognize_google(audio_data)
+            print(f"Transcribed text: {text}")
+            return jsonify({'text': text})
+        except sr.UnknownValueError:
+            print("Could not understand the audio.")
+            return jsonify({'error': "Could not understand the audio."}), 400
+        except sr.RequestError as e:
+            print(f"Recognition service error: {e}")
+            return jsonify({'error': f"Recognition service error: {e}"}), 500
+
+    except Exception as e:
+        print(f"Unexpected error: {e}")
+        return jsonify({'error': 'An unexpected error occurred while processing the audio file.'}), 500
+
+    finally:
+        # Clean up temporary files
+        if 'temp_uploaded_path' in locals() and os.path.exists(temp_uploaded_path):
+            os.remove(temp_uploaded_path)
+            print(f"Temporary file {temp_uploaded_path} deleted.")
+        if 'temp_wav_path' in locals() and os.path.exists(temp_wav_path):
+            os.remove(temp_wav_path)
+            print(f"Temporary file {temp_wav_path} deleted.")
+
 if __name__ == '__main__':
-    print("Starting Flask app...")
-    app.run(debug=True, host='0.0.0.0', port=6000)
+    # Ensure that ffmpeg is installed and accessible
+    # You can install Flask and other dependencies using pip
+    # Example: pip install flask pydub speechrecognition
+    app.run(host='0.0.0.0', port=6000, debug=True)
